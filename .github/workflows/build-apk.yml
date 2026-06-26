@@ -1,399 +1,354 @@
 name: Build Android APK
 
 on:
-workflow_dispatch:
+  workflow_dispatch:
+  push:
+    branches: [ "main" ]
 
 jobs:
-build:
-runs-on: ubuntu-latest
+  build:
+    runs-on: ubuntu-latest
 
-steps:
-  - name: Checkout empty repo
-    uses: actions/checkout@v4
+    steps:
+      - name: Set up Java
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 17
 
-  - name: Set up Java
-    uses: actions/setup-java@v4
-    with:
-      distribution: temurin
-      java-version: 17
+      - name: Set up Gradle
+        uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: 8.7
 
-  - name: Set up Gradle
-    uses: gradle/actions/setup-gradle@v4
-    with:
-      gradle-version: 8.7
+      - name: Set up Android SDK
+        uses: android-actions/setup-android@v3
 
-  - name: Set up Android SDK
-    uses: android-actions/setup-android@v3
+      - name: Install Android packages
+        run: |
+          sdkmanager "platforms;android-35" "build-tools;35.0.0" "platform-tools"
 
-  - name: Install Android packages
-    run: |
-      sdkmanager "platforms;android-35" "build-tools;35.0.0" "platform-tools"
+      - name: Create Android project
+        run: |
+          mkdir -p app/src/main/java/com/example/voicemusiccontrol
+          mkdir -p app/src/main/res/values
 
-  - name: Create Android project
-    run: |
-      mkdir -p app/src/main/java/com/example/voicemusiccontrol
-
-      cat > settings.gradle <<'EOF'
-      pluginManagement {
-          repositories {
-              google()
-              mavenCentral()
-              gradlePluginPortal()
-          }
-      }
-
-      dependencyResolutionManagement {
-          repositoriesMode.set(RepositoriesMode.FAIL_ON_PROJECT_REPOS)
-          repositories {
-              google()
-              mavenCentral()
-          }
-      }
-
-      rootProject.name = "VoiceMusicControl"
-      include ':app'
-      EOF
-
-      cat > build.gradle <<'EOF'
-      plugins {
-          id 'com.android.application' version '8.6.1' apply false
-      }
-      EOF
-
-      cat > app/build.gradle <<'EOF'
-      plugins {
-          id 'com.android.application'
-      }
-
-      android {
-          namespace 'com.example.voicemusiccontrol'
-          compileSdk 35
-
-          defaultConfig {
-              applicationId 'com.example.voicemusiccontrol'
-              minSdk 26
-              targetSdk 35
-              versionCode 1
-              versionName '1.0'
-          }
-      }
-      EOF
-
-      cat > app/src/main/AndroidManifest.xml <<'EOF'
-      <manifest xmlns:android="http://schemas.android.com/apk/res/android">
-
-          <uses-permission android:name="android.permission.RECORD_AUDIO" />
-          <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
-          <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
-          <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MICROPHONE" />
-
-          <application
-              android:allowBackup="true"
-              android:theme="@style/AppTheme"
-              android:label="Voice Music Control">
-
-              <activity
-                  android:name=".MainActivity"
-                  android:exported="true">
-                  <intent-filter>
-                      <action android:name="android.intent.action.MAIN" />
-                      <category android:name="android.intent.category.LAUNCHER" />
-                  </intent-filter>
-              </activity>
-
-              <service
-                  android:name=".VoiceService"
-                  android:exported="false"
-                  android:foregroundServiceType="microphone" />
-
-          </application>
-      </manifest>
-      EOF
-
-      mkdir -p app/src/main/res/values
-
-      cat > app/src/main/res/values/styles.xml <<'EOF'
-      <resources>
-          <style name="AppTheme" parent="android:style/Theme.Material.Light.NoActionBar">
-              <item name="android:fontFamily">sans</item>
-              <item name="android:windowLightStatusBar">true</item>
-              <item name="android:colorAccent">#222222</item>
-          </style>
-      </resources>
-      EOF
-
-      cat > app/src/main/java/com/example/voicemusiccontrol/MainActivity.java <<'EOF'
-      package com.example.voicemusiccontrol;
-
-      import android.Manifest;
-      import android.app.Activity;
-      import android.content.Intent;
-      import android.content.pm.PackageManager;
-      import android.os.Bundle;
-      import android.provider.Settings;
-      import android.view.Gravity;
-      import android.widget.Button;
-      import android.widget.LinearLayout;
-      import android.widget.TextView;
-
-      public class MainActivity extends Activity {
-          private static final int REQ = 100;
-
-          @Override
-          protected void onCreate(Bundle savedInstanceState) {
-              super.onCreate(savedInstanceState);
-
-              LinearLayout layout = new LinearLayout(this);
-              layout.setOrientation(LinearLayout.VERTICAL);
-              layout.setPadding(40, 60, 40, 40);
-              layout.setGravity(Gravity.CENTER_HORIZONTAL);
-
-              TextView title = new TextView(this);
-              title.setText("Voice Music Control");
-              title.setTextSize(26);
-              title.setGravity(Gravity.CENTER);
-              layout.addView(title);
-
-              TextView info = new TextView(this);
-              info.setText(
-                      "\nКоманды:\n" +
-                      "дальше / следующий\n" +
-                      "назад / предыдущий\n" +
-                      "пауза / стоп\n" +
-                      "играй / продолжить\n\n" +
-                      "Сначала включи Яндекс Музыку, потом нажми кнопку ниже.\n" +
-                      "На Xiaomi включи: Батарея → Без ограничений."
-              );
-              info.setTextSize(16);
-              layout.addView(info);
-
-              Button start = new Button(this);
-              start.setText("Включить голос");
-              layout.addView(start);
-
-              Button stop = new Button(this);
-              stop.setText("Выключить голос");
-              layout.addView(stop);
-
-              Button settings = new Button(this);
-              settings.setText("Открыть настройки приложения");
-              layout.addView(settings);
-
-              setContentView(layout);
-
-              start.setOnClickListener(v -> {
-                  requestNeededPermissions();
-                  Intent i = new Intent(this, VoiceService.class);
-                  startForegroundService(i);
-              });
-
-              stop.setOnClickListener(v -> {
-                  Intent i = new Intent(this, VoiceService.class);
-                  stopService(i);
-              });
-
-              settings.setOnClickListener(v -> {
-                  Intent intent = new Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS);
-                  intent.setData(android.net.Uri.parse("package:" + getPackageName()));
-                  startActivity(intent);
-              });
-          }
-
-          private void requestNeededPermissions() {
-              if (checkSelfPermission(Manifest.permission.RECORD_AUDIO) != PackageManager.PERMISSION_GRANTED) {
-                  requestPermissions(new String[]{
-                          Manifest.permission.RECORD_AUDIO,
-                          Manifest.permission.POST_NOTIFICATIONS
-                  }, REQ);
+          cat > settings.gradle <<'EOF'
+          pluginManagement {
+              repositories {
+                  google()
+                  mavenCentral()
+                  gradlePluginPortal()
               }
           }
-      }
-      EOF
 
-      cat > app/src/main/java/com/example/voicemusiccontrol/VoiceService.java <<'EOF'
-      package com.example.voicemusiccontrol;
-
-      import android.app.Notification;
-      import android.app.NotificationChannel;
-      import android.app.NotificationManager;
-      import android.app.Service;
-      import android.content.Context;
-      import android.content.Intent;
-      import android.media.AudioManager;
-      import android.os.Bundle;
-      import android.os.Handler;
-      import android.os.IBinder;
-      import android.os.Looper;
-      import android.speech.RecognitionListener;
-      import android.speech.RecognizerIntent;
-      import android.speech.SpeechRecognizer;
-      import android.view.KeyEvent;
-
-      import java.util.ArrayList;
-      import java.util.Locale;
-
-      public class VoiceService extends Service {
-          private static final String CHANNEL_ID = "voice_music_control_channel";
-          private SpeechRecognizer recognizer;
-          private Intent recognizerIntent;
-          private final Handler handler = new Handler(Looper.getMainLooper());
-          private boolean running = false;
-
-          @Override
-          public void onCreate() {
-              super.onCreate();
-              createNotificationChannel();
+          dependencyResolutionManagement {
+              repositoriesMode.set(RepositoriesMode.FAIL_ON_PROJECT_REPOS)
+              repositories {
+                  google()
+                  mavenCentral()
+              }
           }
 
-          @Override
-          public int onStartCommand(Intent intent, int flags, int startId) {
-              startForeground(1, createNotification());
-              running = true;
-              startListening();
-              return START_STICKY;
+          rootProject.name = "VoiceMusicControl"
+          include ':app'
+          EOF
+
+          cat > build.gradle <<'EOF'
+          plugins {
+              id 'com.android.application' version '8.6.1' apply false
+          }
+          EOF
+
+          cat > app/build.gradle <<'EOF'
+          plugins {
+              id 'com.android.application'
           }
 
-          private void startListening() {
-              if (!running) return;
+          android {
+              namespace 'com.example.voicemusiccontrol'
+              compileSdk 35
 
-              if (!SpeechRecognizer.isRecognitionAvailable(this)) {
-                  stopSelf();
-                  return;
+              defaultConfig {
+                  applicationId 'com.example.voicemusiccontrol'
+                  minSdk 26
+                  targetSdk 35
+                  versionCode 1
+                  versionName '1.0'
+              }
+          }
+          EOF
+
+          cat > app/src/main/res/values/styles.xml <<'EOF'
+          <resources>
+              <style name="AppTheme" parent="android:style/Theme.Material.Light.NoActionBar">
+                  <item name="android:fontFamily">sans</item>
+                  <item name="android:windowLightStatusBar">true</item>
+                  <item name="android:colorAccent">#222222</item>
+              </style>
+          </resources>
+          EOF
+
+          cat > app/src/main/AndroidManifest.xml <<'EOF'
+          <manifest xmlns:android="http://schemas.android.com/apk/res/android">
+              <uses-permission android:name="android.permission.RECORD_AUDIO" />
+              <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+              <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
+              <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MICROPHONE" />
+
+              <application
+                  android:allowBackup="true"
+                  android:theme="@style/AppTheme"
+                  android:label="Voice Music Control">
+
+                  <activity
+                      android:name=".MainActivity"
+                      android:exported="true">
+                      <intent-filter>
+                          <action android:name="android.intent.action.MAIN" />
+                          <category android:name="android.intent.category.LAUNCHER" />
+                      </intent-filter>
+                  </activity>
+
+                  <service
+                      android:name=".VoiceService"
+                      android:exported="false"
+                      android:foregroundServiceType="microphone" />
+              </application>
+          </manifest>
+          EOF
+
+          cat > app/src/main/java/com/example/voicemusiccontrol/MainActivity.java <<'EOF'
+          package com.example.voicemusiccontrol;
+
+          import android.Manifest;
+          import android.app.Activity;
+          import android.content.Intent;
+          import android.content.pm.PackageManager;
+          import android.os.Bundle;
+          import android.provider.Settings;
+          import android.view.Gravity;
+          import android.widget.Button;
+          import android.widget.LinearLayout;
+          import android.widget.TextView;
+
+          public class MainActivity extends Activity {
+              @Override
+              protected void onCreate(Bundle savedInstanceState) {
+                  super.onCreate(savedInstanceState);
+
+                  LinearLayout layout = new LinearLayout(this);
+                  layout.setOrientation(LinearLayout.VERTICAL);
+                  layout.setPadding(40, 60, 40, 40);
+                  layout.setGravity(Gravity.CENTER_HORIZONTAL);
+
+                  TextView title = new TextView(this);
+                  title.setText("Voice Music Control");
+                  title.setTextSize(26);
+                  title.setGravity(Gravity.CENTER);
+                  layout.addView(title);
+
+                  TextView info = new TextView(this);
+                  info.setText(
+                          "\n袣芯屑邪薪写褘:\n" +
+                          "写邪谢褜褕械 / 褋谢械写褍褞褖懈泄\n" +
+                          "薪邪蟹邪写 / 锌褉械写褘写褍褖懈泄\n" +
+                          "锌邪褍蟹邪 / 褋褌芯锌\n" +
+                          "懈谐褉邪泄 / 锌褉芯写芯谢卸懈褌褜\n\n" +
+                          "小薪邪褔邪谢邪 胁泻谢褞褔懈 携薪写械泻褋 袦褍蟹褘泻褍, 锌芯褌芯屑 薪邪卸屑懈 泻薪芯锌泻褍 薪懈卸械.\n" +
+                          "袧邪 Xiaomi 胁泻谢褞褔懈: 袘邪褌邪褉械褟 鈫� 袘械蟹 芯谐褉邪薪懈褔械薪懈泄."
+                  );
+                  info.setTextSize(16);
+                  layout.addView(info);
+
+                  Button start = new Button(this);
+                  start.setText("袙泻谢褞褔懈褌褜 谐芯谢芯褋");
+                  layout.addView(start);
+
+                  Button stop = new Button(this);
+                  stop.setText("袙褘泻谢褞褔懈褌褜 谐芯谢芯褋");
+                  layout.addView(stop);
+
+                  Button settings = new Button(this);
+                  settings.setText("袨褌泻褉褘褌褜 薪邪褋褌褉芯泄泻懈 锌褉懈谢芯卸械薪懈褟");
+                  layout.addView(settings);
+
+                  setContentView(layout);
+
+                  start.setOnClickListener(v -> {
+                      if (checkSelfPermission(Manifest.permission.RECORD_AUDIO) != PackageManager.PERMISSION_GRANTED) {
+                          requestPermissions(new String[]{
+                                  Manifest.permission.RECORD_AUDIO,
+                                  Manifest.permission.POST_NOTIFICATIONS
+                          }, 100);
+                      } else {
+                          startForegroundService(new Intent(this, VoiceService.class));
+                      }
+                  });
+
+                  stop.setOnClickListener(v -> stopService(new Intent(this, VoiceService.class)));
+
+                  settings.setOnClickListener(v -> {
+                      Intent intent = new Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS);
+                      intent.setData(android.net.Uri.parse("package:" + getPackageName()));
+                      startActivity(intent);
+                  });
+              }
+          }
+          EOF
+
+          cat > app/src/main/java/com/example/voicemusiccontrol/VoiceService.java <<'EOF'
+          package com.example.voicemusiccontrol;
+
+          import android.app.Notification;
+          import android.app.NotificationChannel;
+          import android.app.NotificationManager;
+          import android.app.Service;
+          import android.content.Context;
+          import android.content.Intent;
+          import android.media.AudioManager;
+          import android.os.Bundle;
+          import android.os.Handler;
+          import android.os.IBinder;
+          import android.os.Looper;
+          import android.speech.RecognitionListener;
+          import android.speech.RecognizerIntent;
+          import android.speech.SpeechRecognizer;
+          import android.view.KeyEvent;
+
+          import java.util.ArrayList;
+          import java.util.Locale;
+
+          public class VoiceService extends Service {
+              private static final String CHANNEL_ID = "voice_music_control_channel";
+              private SpeechRecognizer recognizer;
+              private final Handler handler = new Handler(Looper.getMainLooper());
+              private boolean running = false;
+
+              @Override
+              public int onStartCommand(Intent intent, int flags, int startId) {
+                  createNotificationChannel();
+                  startForeground(1, createNotification());
+                  running = true;
+                  startListening();
+                  return START_STICKY;
               }
 
-              if (recognizer != null) {
-                  recognizer.destroy();
-              }
+              private void startListening() {
+                  if (!running) return;
+                  if (!SpeechRecognizer.isRecognitionAvailable(this)) {
+                      stopSelf();
+                      return;
+                  }
 
-              recognizer = SpeechRecognizer.createSpeechRecognizer(this);
+                  if (recognizer != null) recognizer.destroy();
+                  recognizer = SpeechRecognizer.createSpeechRecognizer(this);
 
-              recognizerIntent = new Intent(RecognizerIntent.ACTION_RECOGNIZE_SPEECH);
-              recognizerIntent.putExtra(RecognizerIntent.EXTRA_LANGUAGE_MODEL, RecognizerIntent.LANGUAGE_MODEL_FREE_FORM);
-              recognizerIntent.putExtra(RecognizerIntent.EXTRA_LANGUAGE, "ru-RU");
-              recognizerIntent.putExtra(RecognizerIntent.EXTRA_PARTIAL_RESULTS, true);
-              recognizerIntent.putExtra(RecognizerIntent.EXTRA_MAX_RESULTS, 3);
+                  Intent recognizerIntent = new Intent(RecognizerIntent.ACTION_RECOGNIZE_SPEECH);
+                  recognizerIntent.putExtra(RecognizerIntent.EXTRA_LANGUAGE_MODEL, RecognizerIntent.LANGUAGE_MODEL_FREE_FORM);
+                  recognizerIntent.putExtra(RecognizerIntent.EXTRA_LANGUAGE, "ru-RU");
+                  recognizerIntent.putExtra(RecognizerIntent.EXTRA_PARTIAL_RESULTS, true);
+                  recognizerIntent.putExtra(RecognizerIntent.EXTRA_MAX_RESULTS, 3);
 
-              recognizer.setRecognitionListener(new RecognitionListener() {
-                  @Override public void onReadyForSpeech(Bundle params) {}
-                  @Override public void onBeginningOfSpeech() {}
-                  @Override public void onRmsChanged(float rmsdB) {}
-                  @Override public void onBufferReceived(byte[] buffer) {}
-                  @Override public void onEndOfSpeech() {
+                  recognizer.setRecognitionListener(new RecognitionListener() {
+                      @Override public void onReadyForSpeech(Bundle params) {}
+                      @Override public void onBeginningOfSpeech() {}
+                      @Override public void onRmsChanged(float rmsdB) {}
+                      @Override public void onBufferReceived(byte[] buffer) {}
+                      @Override public void onEndOfSpeech() { restartSoon(); }
+                      @Override public void onError(int error) { restartSoon(); }
+                      @Override public void onResults(Bundle results) { handleResults(results); restartSoon(); }
+                      @Override public void onPartialResults(Bundle partialResults) { handleResults(partialResults); }
+                      @Override public void onEvent(int eventType, Bundle params) {}
+                  });
+
+                  try {
+                      recognizer.startListening(recognizerIntent);
+                  } catch (Exception e) {
                       restartSoon();
                   }
-
-                  @Override
-                  public void onError(int error) {
-                      restartSoon();
-                  }
-
-                  @Override
-                  public void onResults(Bundle results) {
-                      handleResults(results);
-                      restartSoon();
-                  }
-
-                  @Override
-                  public void onPartialResults(Bundle partialResults) {
-                      handleResults(partialResults);
-                  }
-
-                  @Override public void onEvent(int eventType, Bundle params) {}
-              });
-
-              try {
-                  recognizer.startListening(recognizerIntent);
-              } catch (Exception e) {
-                  restartSoon();
               }
-          }
 
-          private void handleResults(Bundle results) {
-              ArrayList<String> words = results.getStringArrayList(SpeechRecognizer.RESULTS_RECOGNITION);
-              if (words == null) return;
+              private void handleResults(Bundle results) {
+                  ArrayList<String> words = results.getStringArrayList(SpeechRecognizer.RESULTS_RECOGNITION);
+                  if (words == null) return;
 
-              for (String text : words) {
-                  String t = text.toLowerCase(Locale.ROOT);
+                  for (String text : words) {
+                      String t = text.toLowerCase(Locale.ROOT);
 
-                  if (t.contains("дальше") || t.contains("следующий") || t.contains("следующая")) {
-                      mediaKey(KeyEvent.KEYCODE_MEDIA_NEXT);
-                      break;
-                  }
+                      if (t.contains("写邪谢褜褕械") || t.contains("褋谢械写褍褞褖懈泄") || t.contains("褋谢械写褍褞褖邪褟")) {
+                          mediaKey(KeyEvent.KEYCODE_MEDIA_NEXT);
+                          break;
+                      }
 
-                  if (t.contains("назад") || t.contains("предыдущий") || t.contains("предыдущая")) {
-                      mediaKey(KeyEvent.KEYCODE_MEDIA_PREVIOUS);
-                      break;
-                  }
+                      if (t.contains("薪邪蟹邪写") || t.contains("锌褉械写褘写褍褖懈泄") || t.contains("锌褉械写褘写褍褖邪褟")) {
+                          mediaKey(KeyEvent.KEYCODE_MEDIA_PREVIOUS);
+                          break;
+                      }
 
-                  if (t.contains("пауза") || t.contains("стоп") || t.contains("останови")) {
-                      mediaKey(KeyEvent.KEYCODE_MEDIA_PLAY_PAUSE);
-                      break;
-                  }
+                      if (t.contains("锌邪褍蟹邪") || t.contains("褋褌芯锌") || t.contains("芯褋褌邪薪芯胁懈")) {
+                          mediaKey(KeyEvent.KEYCODE_MEDIA_PLAY_PAUSE);
+                          break;
+                      }
 
-                  if (t.contains("играй") || t.contains("продолжить") || t.contains("включи")) {
-                      mediaKey(KeyEvent.KEYCODE_MEDIA_PLAY);
-                      break;
+                      if (t.contains("懈谐褉邪泄") || t.contains("锌褉芯写芯谢卸懈褌褜") || t.contains("胁泻谢褞褔懈")) {
+                          mediaKey(KeyEvent.KEYCODE_MEDIA_PLAY);
+                          break;
+                      }
                   }
               }
-          }
 
-          private void mediaKey(int keyCode) {
-              AudioManager audioManager = (AudioManager) getSystemService(Context.AUDIO_SERVICE);
-              long now = System.currentTimeMillis();
-
-              KeyEvent down = new KeyEvent(now, now, KeyEvent.ACTION_DOWN, keyCode, 0);
-              KeyEvent up = new KeyEvent(now, now, KeyEvent.ACTION_UP, keyCode, 0);
-
-              audioManager.dispatchMediaKeyEvent(down);
-              audioManager.dispatchMediaKeyEvent(up);
-          }
-
-          private void restartSoon() {
-              if (!running) return;
-              handler.postDelayed(this::startListening, 700);
-          }
-
-          private void createNotificationChannel() {
-              NotificationChannel channel = new NotificationChannel(
-                      CHANNEL_ID,
-                      "Voice Music Control",
-                      NotificationManager.IMPORTANCE_LOW
-              );
-              NotificationManager manager = getSystemService(NotificationManager.class);
-              manager.createNotificationChannel(channel);
-          }
-
-          private Notification createNotification() {
-              return new Notification.Builder(this, CHANNEL_ID)
-                      .setContentTitle("Voice Music Control работает")
-                      .setContentText("Слушаю команды: дальше, назад, пауза")
-                      .setSmallIcon(android.R.drawable.ic_btn_speak_now)
-                      .setOngoing(true)
-                      .build();
-          }
-
-          @Override
-          public void onDestroy() {
-              running = false;
-              if (recognizer != null) {
-                  recognizer.destroy();
-                  recognizer = null;
+              private void mediaKey(int keyCode) {
+                  AudioManager audioManager = (AudioManager) getSystemService(Context.AUDIO_SERVICE);
+                  long now = System.currentTimeMillis();
+                  audioManager.dispatchMediaKeyEvent(new KeyEvent(now, now, KeyEvent.ACTION_DOWN, keyCode, 0));
+                  audioManager.dispatchMediaKeyEvent(new KeyEvent(now, now, KeyEvent.ACTION_UP, keyCode, 0));
               }
-              super.onDestroy();
+
+              private void restartSoon() {
+                  if (running) handler.postDelayed(this::startListening, 700);
+              }
+
+              private void createNotificationChannel() {
+                  NotificationChannel channel = new NotificationChannel(
+                          CHANNEL_ID,
+                          "Voice Music Control",
+                          NotificationManager.IMPORTANCE_LOW
+                  );
+                  getSystemService(NotificationManager.class).createNotificationChannel(channel);
+              }
+
+              private Notification createNotification() {
+                  return new Notification.Builder(this, CHANNEL_ID)
+                          .setContentTitle("Voice Music Control 褉邪斜芯褌邪械褌")
+                          .setContentText("小谢褍褕邪褞 泻芯屑邪薪写褘: 写邪谢褜褕械, 薪邪蟹邪写, 锌邪褍蟹邪")
+                          .setSmallIcon(android.R.drawable.ic_btn_speak_now)
+                          .setOngoing(true)
+                          .build();
+              }
+
+              @Override
+              public void onDestroy() {
+                  running = false;
+                  if (recognizer != null) {
+                      recognizer.destroy();
+                      recognizer = null;
+                  }
+                  super.onDestroy();
+              }
+
+              @Override
+              public IBinder onBind(Intent intent) {
+                  return null;
+              }
           }
+          EOF
 
-          @Override
-          public IBinder onBind(Intent intent) {
-              return null;
-          }
-      }
-      EOF
+      - name: Build debug APK
+        run: gradle assembleDebug
 
-  - name: Build debug APK
-    run: gradle assembleDebug
-
-  - name: Upload APK
-    uses: actions/upload-artifact@v4
-    with:
-      name: VoiceMusicControl-debug-apk
-      path: app/build/outputs/apk/debug/app-debug.apk
+      - name: Upload APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: VoiceMusicControl-debug-apk
+          path: app/build/outputs/apk/debug/app-debug.
